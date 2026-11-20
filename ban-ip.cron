@@ -1,0 +1,2 @@
+# 設置先: /etc/cron.d/ban-ip (root所有, 644)
+*/10 * * * * root /usr/local/sbin/ban-ip.sh
