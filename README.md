@@ -2,7 +2,7 @@
 
 Apache のアクセスログを cron で巡回し、怪しいパスを叩いた IP をファイアウォールで
 遮断する、それだけのshellスクリプト。
-ファイアウォールは ufw / iptables を設定ファイルで切り替えられます。
+ファイアウォールは ufw / iptables / firewalld を設定ファイルで切り替えられます。
 
 `.env` や `.git` の探索、WordPress / phpMyAdmin / Next.js など使っていない
 技術スタックへの脆弱性スキャンは、公開サーバーには毎日大量に来ます。
@@ -17,7 +17,7 @@ cron (10分おき, root)
        2. アクセスログから直近11分ぶんの行だけ抜く
        3. ban-keywords.conf のキーワードに掛かる行を抜く
        4. IPをユニーク化 (combined 形式の第1フィールド)
-       5. 未登録なら遮断 (ufw: deny from <IP>/32 / iptables: INPUT に DROP)
+       5. 未登録なら遮断 (ufw: deny from <IP>/32 / iptables: INPUT に DROP / firewalld: rich rule で drop)
 ```
 
 ## ファイル
@@ -32,7 +32,8 @@ cron (10分おき, root)
 ## 動作環境
 
 - Debian / Ubuntu 系 (Apache2 + ufw または iptables)
-- root の cron で実行すること (ufw を操作するため)
+- RHEL 系 (RHEL / Oracle Linux / Rocky Linux / AlmaLinux など。httpd + firewalld)
+- root の cron で実行すること (ファイアウォールを操作するため)
 - ログは `/var/log/apache2/access.log` (combined 形式) を想定。
   `ban-ip.conf` の `LOG` はサンプル値なので、自分の環境のアクセスログに
   書き換えてください。vhost_combined 形式 (先頭にホスト名が付くログ) を
@@ -75,6 +76,27 @@ FW=iptables
 - Docker が iptables を管理している環境では、INPUT への直接挿入と
   競合する場合があります。そのような環境では ufw 側か、
   Docker 用のチェーン設計を別途検討してください
+
+## firewalld で使う場合
+
+RHEL 系 (RHEL / Oracle Linux / Rocky Linux / AlmaLinux など) の標準はこちらです。
+同じく `ban-ip.conf` のコメントの付け外しで切り替えます。
+
+```bash
+#FW=ufw
+FW=firewalld
+```
+
+- 遮断は rich rule `rule family="ipv4" source address="<IP>/32" drop` を
+  デフォルトゾーンに入れます。登録済みかどうかは
+  `--permanent --query-rich-rule` で確認するので重複しません
+- `--permanent` (再起動後も残る) とランタイム (即反映) の両方に入れるので、
+  reload は不要です
+- RHEL 系では Apache のログは通常 `/var/log/httpd/access_log` です。
+  `ban-ip.conf` の `LOG` を環境に合わせて書き換えてください
+- 解除: `sudo firewall-cmd --permanent --remove-rich-rule='rule family="ipv4" source address="<IP>/32" drop'`
+  のあと `sudo firewall-cmd --reload`
+- 対象は IPv4 のみです
 
 ## 必ず先に読む注意
 

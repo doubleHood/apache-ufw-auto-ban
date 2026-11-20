@@ -9,10 +9,10 @@ SETTINGS="${BAN_IP_SETTINGS:-/etc/ban-ip.conf}"
 if [ ! -f "$SETTINGS" ]; then echo "設定ファイルがありません: $SETTINGS" >&2; exit 1; fi
 . "$SETTINGS"
 
-# FW の値チェック (ufw / iptables 以外なら設定ミスとして止める)
+# FW の値チェック (ufw / iptables / firewalld 以外なら設定ミスとして止める)
 case "$FW" in
-  ufw|iptables) ;;
-  *) echo "FW の設定が不正です: '$FW' (ufw か iptables を指定)" >&2; exit 1 ;;
+  ufw|iptables|firewalld) ;;
+  *) echo "FW の設定が不正です: '$FW' (ufw / iptables / firewalld のいずれかを指定)" >&2; exit 1 ;;
 esac
 
 # 直近11分分のタイムスタンプ文字列を作る (分単位)
@@ -46,6 +46,15 @@ grep -E "$TIMES" "$LOG" \
           iptables -I INPUT 1 -s "$ip"/32 -j DROP || continue
           # 永続化したい場合は次の行の # を外す (要 iptables-persistent)
           # netfilter-persistent save
+          ;;
+        firewalld)
+          # rich rule で送信元IPを drop (デフォルトゾーンに入る)
+          # 登録済みかどうかは permanent 側の query で確認
+          RULE="rule family=\"ipv4\" source address=\"$ip/32\" drop"
+          firewall-cmd --permanent --query-rich-rule="$RULE" >/dev/null 2>&1 && continue
+          firewall-cmd --permanent --add-rich-rule="$RULE" >/dev/null || continue
+          # ランタイムにも即反映 (reload を挟まず効かせるため両方に入れる)
+          firewall-cmd --add-rich-rule="$RULE" >/dev/null 2>&1 || true
           ;;
       esac
       echo "$(date '+%F %T') deny $ip ($FW)" >> "$BANLOG"
